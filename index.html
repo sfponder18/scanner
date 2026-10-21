@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0d10">
+<title>Scan</title>
+<style>
+:root{--bg:#0b0d10;--panel:#14181d;--line:#232a32;--fg:#e6edf3;--dim:#8b96a3;--acc:#3fb950;--warn:#d29922}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;-webkit-text-size-adjust:100%}
+body{padding:env(safe-area-inset-top) 12px env(safe-area-inset-bottom);max-width:720px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:center;padding:10px 0}
+h1{font-size:15px;margin:0;letter-spacing:.08em}
+#status{color:var(--dim);font-size:12px}
+#view{position:relative;background:#000;border:1px solid var(--line);border-radius:10px;overflow:hidden;aspect-ratio:4/3}
+video{width:100%;height:100%;object-fit:cover;display:block}
+#reticle{position:absolute;inset:18% 8%;border:2px solid rgba(63,185,80,.7);border-radius:8px;pointer-events:none}
+#flash{position:absolute;inset:0;background:rgba(63,185,80,.35);opacity:0;transition:opacity .25s;pointer-events:none}
+#flash.on{opacity:1;transition:none}
+.row{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}
+button,select{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit;min-height:44px}
+button.primary{background:var(--acc);color:#04130a;border-color:var(--acc);font-weight:700;flex:1}
+button:active{filter:brightness(1.2)}
+fieldset{border:1px solid var(--line);border-radius:8px;margin:10px 0;padding:8px 10px}
+legend{color:var(--dim);font-size:12px;padding:0 4px}
+label{display:inline-flex;align-items:center;gap:5px;margin:4px 10px 4px 0;font-size:13px}
+#last{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;margin:10px 0;min-height:64px;word-break:break-all}
+#last .fmt{color:var(--acc);font-size:12px}
+#hist{list-style:none;margin:0;padding:0}
+#hist li{border-bottom:1px solid var(--line);padding:8px 2px;word-break:break-all}
+#hist .meta{color:var(--dim);font-size:11px;display:flex;justify-content:space-between}
+</style>
+</head>
+<body>
+<header><h1>SCAN</h1><span id="status">idle</span></header>
+
+<div id="view">
+  <video id="v" playsinline muted></video>
+  <div id="reticle"></div>
+  <div id="flash"></div>
+</div>
+
+<div class="row">
+  <button id="go" class="primary">Start</button>
+  <button id="torch">Torch</button>
+  <select id="cam" title="Camera"></select>
+</div>
+
+<fieldset>
+  <legend>Symbologies</legend>
+  <label><input type="checkbox" value="QR_CODE" checked>QR</label>
+  <label><input type="checkbox" value="DATA_MATRIX" checked>DataMatrix</label>
+  <label><input type="checkbox" value="PDF_417" checked>PDF417</label>
+  <label><input type="checkbox" value="AZTEC" checked>Aztec</label>
+  <label><input type="checkbox" value="CODE_128" checked>Code128</label>
+  <label><input type="checkbox" value="CODE_39" checked>Code39</label>
+  <label><input type="checkbox" value="EAN_13" checked>EAN13</label>
+  <label><input type="checkbox" value="EAN_8" checked>EAN8</label>
+  <label><input type="checkbox" value="UPC_A" checked>UPCA</label>
+  <label><input type="checkbox" value="UPC_E" checked>UPCE</label>
+  <label><input type="checkbox" value="ITF" checked>ITF</label>
+  <label><input type="checkbox" value="CODABAR" checked>Codabar</label>
+  <label><input type="checkbox" id="dedupe" checked>dedupe 2s</label>
+  <label><input type="checkbox" id="cont" checked>continuous</label>
+</fieldset>
+
+<div id="last"><span class="fmt">no scan</span></div>
+
+<div class="row">
+  <button id="copy">Copy last</button>
+  <button id="csv">Export CSV</button>
+  <button id="clr">Clear</button>
+</div>
+<ul id="hist"></ul>
+
+<script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const v = $('v'), statusEl = $('status');
+  let reader = null, running = false, lastText = '', lastT = 0;
+  const KEY = 'scan.history.v1';
+  let hist = [];
+  try { hist = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) {}
+
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(hist.slice(0, 2000))); } catch (e) {} };
+  const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+  function render() {
+    $('hist').innerHTML = hist.slice(0, 200).map(h =>
+      `<li><div>${esc(h.text)}</div><div class="meta"><span>${h.fmt}</span><span>${h.t.replace('T',' ').slice(0,19)}Z</span></div></li>`
+    ).join('');
+  }
+  function setLast(h) {
+    $('last').innerHTML = `<span class="fmt">${h.fmt} · ${h.text.length} chars</span><br>${esc(h.text)}`;
+  }
+  function hints() {
+    const H = new Map();
+    const fm = [...document.querySelectorAll('fieldset input[type=checkbox][value]:checked')]
+      .map(c => ZXing.BarcodeFormat[c.value]);
+    H.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, fm);
+    H.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    return H;
+  }
+  function beep() {
+    try {
+      const a = new (window.AudioContext || window.webkitAudioContext)();
+      const o = a.createOscillator(), g = a.createGain();
+      o.frequency.value = 1800; g.gain.value = .15;
+      o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + .08);
+    } catch (e) {}
+    if (navigator.vibrate) navigator.vibrate(40);
+  }
+  function onResult(res) {
+    const text = res.getText(), now = Date.now();
+    if ($('dedupe').checked && text === lastText && now - lastT < 2000) { lastT = now; return; }
+    lastText = text; lastT = now;
+    const h = { text, fmt: ZXing.BarcodeFormat[res.getBarcodeFormat()], t: new Date().toISOString() };
+    hist.unshift(h); save(); render(); setLast(h); beep();
+    const f = $('flash'); f.classList.add('on'); setTimeout(() => f.classList.remove('on'), 80);
+    if (!$('cont').checked) stop();
+  }
+
+  async function listCams() {
+    try {
+      const tmp = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      tmp.getTracks().forEach(t => t.stop());
+    } catch (e) { statusEl.textContent = 'camera denied'; return; }
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    $('cam').innerHTML = '<option value="">auto (rear)</option>' +
+      devs.map(d => `<option value="${d.deviceId}">${esc(d.label || d.deviceId.slice(0, 8))}</option>`).join('');
+  }
+
+  async function start() {
+    if (running) return;
+    if (!window.ZXing) { statusEl.textContent = 'zxing failed to load'; return; }
+    reader = new ZXing.BrowserMultiFormatReader(hints(), 150);
+    const id = $('cam').value;
+    const constraints = { video: id
+      ? { deviceId: { exact: id }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+      : { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } };
+    try {
+      running = true; $('go').textContent = 'Stop'; statusEl.textContent = 'scanning';
+      await reader.decodeFromConstraints(constraints, v, (res, err) => { if (res) onResult(res); });
+      try { await v.srcObject.getVideoTracks()[0].applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) {}
+    } catch (e) {
+      running = false; $('go').textContent = 'Start'; statusEl.textContent = 'error: ' + (e.name || e);
+    }
+  }
+  function stop() {
+    if (reader) { reader.reset(); reader = null; }
+    running = false; $('go').textContent = 'Start'; statusEl.textContent = 'idle';
+  }
+
+  $('go').onclick = () => running ? stop() : start();
+  $('cam').onchange = () => { if (running) { stop(); start(); } };
+  document.querySelectorAll('fieldset input[value]').forEach(c => c.onchange = () => { if (running) { stop(); start(); } });
+
+  let torchOn = false;
+  $('torch').onclick = async () => {
+    try {
+      const tr = v.srcObject && v.srcObject.getVideoTracks()[0];
+      if (!tr || !(tr.getCapabilities().torch)) { statusEl.textContent = 'torch unsupported here'; return; }
+      torchOn = !torchOn;
+      await tr.applyConstraints({ advanced: [{ torch: torchOn }] });
+    } catch (e) { statusEl.textContent = 'torch unsupported here'; }
+  };
+
+  $('copy').onclick = async () => {
+    if (!hist.length) return;
+    try { await navigator.clipboard.writeText(hist[0].text); statusEl.textContent = 'copied'; } catch (e) { statusEl.textContent = 'copy blocked'; }
+  };
+  $('clr').onclick = () => { if (confirm('Clear history?')) { hist = []; save(); render(); $('last').innerHTML = '<span class="fmt">no scan</span>'; } };
+  $('csv').onclick = () => {
+    const q = s => '"' + s.replace(/"/g, '""') + '"';
+    const csv = 'time_utc,format,text\n' + hist.map(h => [h.t, h.fmt, q(h.text)].join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'scans-' + new Date().toISOString().slice(0, 10) + '.csv';
+    a.click();
+  };
+
+  document.addEventListener('visibilitychange', () => { if (document.hidden && running) stop(); });
+  render(); if (hist[0]) setLast(hist[0]);
+  if (navigator.mediaDevices) listCams();
+})();
+</script>
+</body>
+</html>
