@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0b0d10">
 <title>Scan</title>
 <style>
-:root{--bg:#0b0d10;--panel:#14181d;--line:#232a32;--fg:#e6edf3;--dim:#8b96a3;--acc:#3fb950;--warn:#d29922}
+:root{--bg:#0b0d10;--panel:#14181d;--line:#232a32;--fg:#e6edf3;--dim:#8b96a3;--acc:#3fb950;--warn:#d29922;--bad:#f85149}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;-webkit-text-size-adjust:100%}
 body{padding:env(safe-area-inset-top) 12px env(safe-area-inset-bottom);max-width:720px;margin:0 auto}
@@ -20,6 +20,8 @@ video{width:100%;height:100%;object-fit:cover;display:block}
 #reticle{position:absolute;inset:18% 8%;border:2px solid rgba(63,185,80,.7);border-radius:8px;pointer-events:none}
 #flash{position:absolute;inset:0;background:rgba(63,185,80,.35);opacity:0;transition:opacity .25s;pointer-events:none}
 #flash.on{opacity:1;transition:none}
+#flash.no{background:rgba(248,81,73,.45)}
+#flash.warn{background:rgba(210,153,34,.45)}
 .row{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}
 button,select{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit;min-height:44px}
 button.primary{background:var(--acc);color:#04130a;border-color:var(--acc);font-weight:700;flex:1}
@@ -29,6 +31,14 @@ legend{color:var(--dim);font-size:12px;padding:0 4px}
 label{display:inline-flex;align-items:center;gap:5px;margin:4px 10px 4px 0;font-size:13px}
 #last{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;margin:10px 0;min-height:64px;word-break:break-all}
 #last .fmt{color:var(--acc);font-size:12px}
+#last.ok{border-color:var(--acc);background:#0f2416}
+#last.no{border-color:var(--bad);background:#2a1214}
+#last.no .fmt{color:var(--bad)}
+#last.warn{border-color:var(--warn);background:#2a2010}
+#last.warn .fmt{color:var(--warn)}
+#last .big{display:block;font-size:22px;font-weight:700;margin:4px 0;word-break:normal}
+textarea{width:100%;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;resize:vertical}
+label.btn{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-height:44px;margin:0;font-size:14px;cursor:pointer}
 #hist{list-style:none;margin:0;padding:0}
 #hist li{border-bottom:1px solid var(--line);padding:8px 2px;word-break:break-all}
 #hist .meta{color:var(--dim);font-size:11px;display:flex;justify-content:space-between}
@@ -49,6 +59,18 @@ label{display:inline-flex;align-items:center;gap:5px;margin:4px 10px 4px 0;font-
   <select id="cam" title="Camera"></select>
 </div>
 
+<div id="last"><span class="fmt">no scan</span></div>
+
+<fieldset>
+  <legend>Roster · <span id="rcount">no list loaded</span></legend>
+  <textarea id="roster" rows="4" spellcheck="false" autocomplete="off" placeholder="One name per line, any order, e.g.&#10;Doe, Jane A&#10;John Q Public"></textarea>
+  <div class="row">
+    <label class="btn">Load file<input type="file" id="rfile" accept=".csv,.txt,text/csv,text/plain" hidden></label>
+    <button id="rcsv">Export roster</button>
+    <button id="rreset">Reset check-ins</button>
+  </div>
+</fieldset>
+
 <fieldset>
   <legend>Symbologies</legend>
   <label><input type="checkbox" value="QR_CODE" checked>QR</label>
@@ -67,8 +89,6 @@ label{display:inline-flex;align-items:center;gap:5px;margin:4px 10px 4px 0;font-
   <label><input type="checkbox" id="cont" checked>continuous</label>
 </fieldset>
 
-<div id="last"><span class="fmt">no scan</span></div>
-
 <div class="row">
   <button id="copy">Copy last</button>
   <button id="csv">Export CSV</button>
@@ -81,7 +101,7 @@ label{display:inline-flex;align-items:center;gap:5px;margin:4px 10px 4px 0;font-
 (() => {
   const $ = id => document.getElementById(id);
   const v = $('v'), statusEl = $('status');
-  let reader = null, running = false, lastText = '', lastT = 0;
+  let reader = null, running = false, lastText = '', lastT = 0, flashT = 0;
   const KEY = 'scan.history.v1';
   let hist = [];
   try { hist = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) {}
@@ -95,7 +115,67 @@ label{display:inline-flex;align-items:center;gap:5px;margin:4px 10px 4px 0;font-
     ).join('');
   }
   function setLast(h) {
-    $('last').innerHTML = `<span class="fmt">${h.fmt} · ${h.text.length} chars</span><br>${esc(h.text)}`;
+    $('last').className = h.cls || '';
+    $('last').innerHTML = h.cls
+      ? `<span class="fmt">${h.fmt}</span><span class="big">${esc(h.text)}</span>${esc(h.note || '')}`
+      : `<span class="fmt">${h.fmt} · ${h.text.length} chars</span><br>${esc(h.text)}`;
+  }
+
+  const RKEY = 'scan.roster.v1';
+  let roster = { names: [], checked: {} };
+  try { Object.assign(roster, JSON.parse(localStorage.getItem(RKEY) || '{}')); } catch (e) {}
+  const saveRoster = () => { try { localStorage.setItem(RKEY, JSON.stringify(roster)); } catch (e) {} };
+
+  // DoD ID card (CAC) front PDF417 is fixed-width: version char, ID header, first name (20), last name (26), ...
+  // Per version: [first-name start, middle-initial index or -1, last-name start]. 'M' has a one-char-longer header and
+  // the middle initial between the names (seen on a real card); '1'/'N' follow the published layout (MI not read).
+  const ID_LAYOUT = { '1': [15, -1, 35], 'N': [15, -1, 35], 'M': [16, 36, 37] };
+  function parseID(text, fmt) {
+    const L = ID_LAYOUT[text[0]];
+    if (fmt !== 'PDF_417' || !L || text.length < L[2] + 26) return null;
+    const first = text.substr(L[0], 20).trim(), last = text.substr(L[2], 26).trim(), mi = L[1] < 0 ? '' : text[L[1]].trim();
+    const name = /^[A-Za-z][A-Za-z .'-]*$/;
+    if (!name.test(first) || !name.test(last) || !/^[A-Za-z]?$/.test(mi)) return null;
+    return { first, mi, last, name: [first, mi, last].filter(Boolean).join(' ') };
+  }
+
+  // Uppercase name words; words with digits (grades like O-3, IDs) are dropped, hyphenated names split.
+  const toks = s => s.normalize('NFD').replace(/[\u0300-\u036f'.]/g, '').toUpperCase().split(/[\s,;]+/)
+    .filter(w => !/\d/.test(w)).join(' ').split(/[^A-Z]+/).filter(Boolean);
+  // Roster lines can be "First M Last", "Last, First M", or carry rank/extra columns: match on first + last name tokens.
+  // A single letter right after the first name is a middle initial and must agree with the card's when both exist.
+  function lookup(p) {
+    const first = toks(p.first)[0], last = toks(p.last), mi = toks(p.mi)[0];
+    let hit = null, near = null;
+    for (const name of roster.names) {
+      const t = toks(name);
+      if (!last.every(x => t.includes(x))) continue;
+      const i = t.indexOf(first), next = t[i + 1] || '';
+      if (i >= 0 && mi && next.length === 1) { if (next === mi) return { name, exact: true }; }
+      else if (i >= 0) { hit = hit || name; continue; }
+      near = near || name;
+    }
+    return hit ? { name: hit, exact: true } : near && { name: near, exact: false };
+  }
+
+  const hhmm = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  function checkIn(p) {
+    if (!roster.names.length) return { text: p.name, fmt: 'ID CARD' };
+    const m = lookup(p);
+    if (!m) return { text: p.name, fmt: 'NOT ON LIST', cls: 'no' };
+    if (!m.exact) return { text: p.name, fmt: 'CHECK NAME', cls: 'warn', note: 'closest on list: ' + m.name };
+    const prev = roster.checked[m.name];
+    if (prev) return { text: p.name, fmt: 'ALREADY CHECKED IN', cls: 'warn', note: 'at ' + hhmm(prev) + ' as ' + m.name };
+    roster.checked[m.name] = new Date().toISOString(); saveRoster(); renderRoster();
+    return { text: p.name, fmt: 'ON LIST', cls: 'ok', note: 'as ' + m.name };
+  }
+  function renderRoster() {
+    const n = roster.names.length, c = roster.names.filter(x => roster.checked[x]).length;
+    $('rcount').textContent = n ? `${c} / ${n} checked in` : 'no list loaded';
+  }
+  function setRoster(txt) {
+    roster.names = [...new Set(txt.split(/\r?\n/).map(s => s.replace(/"/g, '').trim()).filter(Boolean))];
+    saveRoster(); renderRoster();
   }
   function hints() {
     const H = new Map();
@@ -106,22 +186,26 @@ label{display:inline-flex;align-items:center;gap:5px;margin:4px 10px 4px 0;font-
     // rotated 1D retry adds a second pass per frame, locking every camera frame to inverted (nothing decodes).
     return H;
   }
-  function beep() {
+  function beep(bad) {
     try {
       const a = new (window.AudioContext || window.webkitAudioContext)();
       const o = a.createOscillator(), g = a.createGain();
-      o.frequency.value = 1800; g.gain.value = .15;
-      o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + .08);
+      o.frequency.value = bad ? 330 : 1800; g.gain.value = .15;
+      o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + (bad ? .35 : .08));
     } catch (e) {}
-    if (navigator.vibrate) navigator.vibrate(40);
+    if (navigator.vibrate) navigator.vibrate(bad ? [80, 60, 80] : 40);
   }
   function onResult(res) {
     const text = res.getText(), now = Date.now();
     if ($('dedupe').checked && text === lastText && now - lastT < 2000) { lastT = now; return; }
     lastText = text; lastT = now;
-    const h = { text, fmt: ZXing.BarcodeFormat[res.getBarcodeFormat()], t: new Date().toISOString() };
-    hist.unshift(h); save(); render(); setLast(h); beep();
-    const f = $('flash'); f.classList.add('on'); setTimeout(() => f.classList.remove('on'), 80);
+    const fmt = ZXing.BarcodeFormat[res.getBarcodeFormat()], id = parseID(text, fmt);
+    // ID cards keep only the name: the raw barcode also carries the DoD ID number, DOB and rank.
+    const h = Object.assign(id ? checkIn(id) : { text, fmt }, { t: new Date().toISOString() });
+    const bad = h.cls === 'no' || h.cls === 'warn';
+    hist.unshift(h); save(); render(); setLast(h); beep(bad);
+    const f = $('flash'); f.className = 'on ' + (h.cls || '');
+    clearTimeout(flashT); flashT = setTimeout(() => f.className = h.cls || '', bad ? 400 : 80);
     if (!$('cont').checked) stop();
   }
 
@@ -174,15 +258,25 @@ label{display:inline-flex;align-items:center;gap:5px;margin:4px 10px 4px 0;font-
     if (!hist.length) return;
     try { await navigator.clipboard.writeText(hist[0].text); statusEl.textContent = 'copied'; } catch (e) { statusEl.textContent = 'copy blocked'; }
   };
-  $('clr').onclick = () => { if (confirm('Clear history?')) { hist = []; save(); render(); $('last').innerHTML = '<span class="fmt">no scan</span>'; } };
-  $('csv').onclick = () => {
-    const q = s => '"' + s.replace(/"/g, '""') + '"';
-    const csv = 'time_utc,format,text\n' + hist.map(h => [h.t, h.fmt, q(h.text)].join(',')).join('\n');
+  $('clr').onclick = () => { if (confirm('Clear history?')) { hist = []; save(); render(); $('last').className = ''; $('last').innerHTML = '<span class="fmt">no scan</span>'; } };
+  const q = s => '"' + s.replace(/"/g, '""') + '"';
+  function download(name, csv) {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download = 'scans-' + new Date().toISOString().slice(0, 10) + '.csv';
+    a.download = name + '-' + new Date().toISOString().slice(0, 10) + '.csv';
     a.click();
+  }
+  $('csv').onclick = () => download('scans', 'time_utc,format,text\n' + hist.map(h => [h.t, h.fmt, q(h.text)].join(',')).join('\n'));
+
+  $('roster').value = roster.names.join('\n');
+  $('roster').oninput = () => setRoster($('roster').value);
+  $('rfile').onchange = async e => {
+    const file = e.target.files[0]; if (!file) return;
+    $('roster').value = await file.text(); setRoster($('roster').value); e.target.value = '';
   };
+  $('rcsv').onclick = () => download('roster', 'name,checked_in_utc\n' + roster.names.map(x => q(x) + ',' + (roster.checked[x] || '')).join('\n'));
+  $('rreset').onclick = () => { if (confirm('Clear all check-ins?')) { roster.checked = {}; saveRoster(); renderRoster(); } };
+  renderRoster();
 
   document.addEventListener('visibilitychange', () => { if (document.hidden && running) stop(); });
   render(); if (hist[0]) setLast(hist[0]);
