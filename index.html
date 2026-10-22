@@ -3,136 +3,162 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- Data never leaves the device: the browser blocks every network request this page could make (connect-src 'none')
+     and it only loads its own files. Names and check-ins live in this browser's storage on this device only. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'none'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Entry Check">
 <meta name="theme-color" content="#0b0d10">
-<title>Scan</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>Entry Check</title>
 <style>
-:root{--bg:#0b0d10;--panel:#14181d;--line:#232a32;--fg:#e6edf3;--dim:#8b96a3;--acc:#3fb950;--warn:#d29922;--bad:#f85149}
+:root{--bg:#0b0d10;--panel:#161b22;--line:#2a313a;--fg:#f0f3f6;--dim:#9aa5b1;--ok:#238636;--bad:#da3633;--warn:#d29922}
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;-webkit-text-size-adjust:100%}
-body{padding:env(safe-area-inset-top) 12px env(safe-area-inset-bottom);max-width:720px;margin:0 auto}
-header{display:flex;justify-content:space-between;align-items:center;padding:10px 0}
-h1{font-size:15px;margin:0;letter-spacing:.08em}
-#status{color:var(--dim);font-size:12px}
-#view{position:relative;background:#000;border:1px solid var(--line);border-radius:10px;overflow:hidden;aspect-ratio:4/3}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+body{padding:env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 16px);max-width:720px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0}
+h1{font-size:18px;margin:0;letter-spacing:.08em}
+h2{font-size:20px;margin:8px 0}
+.dim{color:var(--dim);font-size:14px}
+button,select,input,textarea,.btn{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:10px}
+button,.btn{padding:12px 16px;min-height:48px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;text-align:center}
+button:active,.btn:active{filter:brightness(1.25)}
+button:disabled{opacity:.6}
+.primary{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:700}
+.big{flex:1;min-height:68px;font-size:21px;font-weight:700;letter-spacing:.04em}
+.danger{border-color:var(--bad);color:#ff7b72}
+.wide{display:flex;width:100%;margin:10px 0}
+.grow{flex:1}
+.row{display:flex;gap:10px;margin:12px 0;flex-wrap:wrap}
+.field{display:block;margin:12px 0;font-size:14px;color:var(--dim)}
+.field input,.field select,.field textarea{display:block;width:100%;margin-top:6px;padding:12px;min-height:48px}
+.field textarea{min-height:200px;resize:vertical}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4px 12px 8px;margin:12px 0}
+#count{font-size:22px;font-weight:700;margin-bottom:8px}
+#view{position:relative;background:#000;border:1px solid var(--line);border-radius:12px;overflow:hidden;aspect-ratio:4/3}
 video{width:100%;height:100%;object-fit:cover;display:block}
-#reticle{position:absolute;inset:18% 8%;border:2px solid rgba(63,185,80,.7);border-radius:8px;pointer-events:none}
-#flash{position:absolute;inset:0;background:rgba(63,185,80,.35);opacity:0;transition:opacity .25s;pointer-events:none}
+#reticle{position:absolute;inset:24% 6%;border:3px solid rgba(255,255,255,.85);border-radius:10px;pointer-events:none}
+#flash{position:absolute;inset:0;opacity:0;transition:opacity .3s;pointer-events:none}
 #flash.on{opacity:1;transition:none}
-#flash.no{background:rgba(248,81,73,.45)}
-#flash.warn{background:rgba(210,153,34,.45)}
-.row{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}
-button,select{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit;min-height:44px}
-button.primary{background:var(--acc);color:#04130a;border-color:var(--acc);font-weight:700;flex:1}
-button:active{filter:brightness(1.2)}
-fieldset{border:1px solid var(--line);border-radius:8px;margin:10px 0;padding:8px 10px}
-legend{color:var(--dim);font-size:12px;padding:0 4px}
-label{display:inline-flex;align-items:center;gap:5px;margin:4px 10px 4px 0;font-size:13px}
-#last{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;margin:10px 0;min-height:64px;word-break:break-all}
-#last .fmt{color:var(--acc);font-size:12px}
-#last.ok{border-color:var(--acc);background:#0f2416}
-#last.no{border-color:var(--bad);background:#2a1214}
-#last.no .fmt{color:var(--bad)}
-#last.warn{border-color:var(--warn);background:#2a2010}
-#last.warn .fmt{color:var(--warn)}
-#last .big{display:block;font-size:22px;font-weight:700;margin:4px 0;word-break:normal}
-textarea{width:100%;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;resize:vertical}
-label.btn{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-height:44px;margin:0;font-size:14px;cursor:pointer}
-#hist{list-style:none;margin:0;padding:0}
-#hist li{border-bottom:1px solid var(--line);padding:8px 2px;word-break:break-all}
-#hist .meta{color:var(--dim);font-size:11px;display:flex;justify-content:space-between}
+#flash.ok{background:rgba(35,134,54,.6)}
+#flash.no{background:rgba(218,54,51,.65)}
+#flash.warn{background:rgba(210,153,34,.65)}
+#hint{position:absolute;left:8px;right:8px;bottom:8px;text-align:center;font-size:15px;color:#fff;text-shadow:0 1px 3px #000}
+#result{border-radius:12px;padding:14px 16px;margin:12px 0;min-height:128px;display:flex;flex-direction:column;justify-content:center;gap:4px;background:var(--panel);border:2px solid var(--line)}
+#result b{font-size:32px;line-height:1.1;letter-spacing:.02em}
+#result .name{font-size:25px;font-weight:700}
+#result.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+#result.no{background:var(--bad);border-color:var(--bad);color:#fff}
+#result.warn{background:var(--warn);border-color:var(--warn);color:#111}
+#found{list-style:none;margin:0;padding:0}
+#found li{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+#found li span{flex:1}
+#found em{color:var(--dim);font-style:normal;font-size:14px}
+#report{display:none}
+@media print{
+  @page{margin:14mm}
+  html,body{background:#fff;color:#000;font:10.5pt/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;max-width:none;padding:0}
+  body>*:not(#report){display:none!important}
+  #report{display:block}
+  #report h1{font-size:16pt;margin:0 0 4pt}
+  #report h2{font-size:12pt;margin:14pt 0 4pt}
+  #report table{width:100%;border-collapse:collapse}
+  #report th,#report td{border:1px solid #888;padding:3pt 6pt;text-align:left;vertical-align:top}
+  #report th{background:#eee}
+  #report tr{break-inside:avoid}
+  #report .sig{margin-top:28pt}
+  #report .small{font-size:8.5pt;color:#444}
+}
 </style>
 </head>
 <body>
-<header><h1>SCAN</h1><span id="status">idle</span></header>
+<header>
+  <div><h1>ENTRY CHECK</h1><div id="listName" class="dim"></div></div>
+  <button id="menuBtn">Menu</button>
+</header>
 
-<div id="view">
-  <video id="v" playsinline muted></video>
-  <div id="reticle"></div>
-  <div id="flash"></div>
-</div>
-
-<div class="row">
-  <button id="go" class="primary">Start</button>
-  <button id="torch">Torch</button>
-  <select id="cam" title="Camera"></select>
-</div>
-
-<div id="last"><span class="fmt">no scan</span></div>
-
-<fieldset>
-  <legend>Roster · <span id="rcount">no list loaded</span></legend>
-  <textarea id="roster" rows="4" spellcheck="false" autocomplete="off" placeholder="One name per line, any order, e.g.&#10;Doe, Jane A&#10;John Q Public"></textarea>
+<section id="setup" hidden>
+  <h2>Load the entry list</h2>
+  <p class="dim">One person per line, in any order: <i>Doe, Jane A</i> or <i>Jane A Doe</i>. Rank or other columns are fine. A spreadsheet saved as CSV works too.</p>
+  <label class="field">List name (optional)<input id="titleIn" autocomplete="off" placeholder="e.g. Gate 2, Wing Ball"></label>
+  <label class="field">Names<textarea id="namesIn" spellcheck="false" autocomplete="off" placeholder="Doe, Jane A&#10;John Q Public"></textarea></label>
   <div class="row">
-    <label class="btn">Load file<input type="file" id="rfile" accept=".csv,.txt,text/csv,text/plain" hidden></label>
-    <button id="rcsv">Export roster</button>
-    <button id="rreset">Reset check-ins</button>
+    <label class="btn">Load file…<input type="file" id="fileIn" accept=".csv,.txt,text/csv,text/plain" hidden></label>
+    <button id="saveList" class="primary grow">Save list</button>
   </div>
-</fieldset>
+  <button id="cancelSetup" class="wide">Cancel</button>
+</section>
 
-<fieldset>
-  <legend>Symbologies</legend>
-  <label><input type="checkbox" value="QR_CODE" checked>QR</label>
-  <label><input type="checkbox" value="DATA_MATRIX" checked>DataMatrix</label>
-  <label><input type="checkbox" value="PDF_417" checked>PDF417</label>
-  <label><input type="checkbox" value="AZTEC" checked>Aztec</label>
-  <label><input type="checkbox" value="CODE_128" checked>Code128</label>
-  <label><input type="checkbox" value="CODE_39" checked>Code39</label>
-  <label><input type="checkbox" value="EAN_13" checked>EAN13</label>
-  <label><input type="checkbox" value="EAN_8" checked>EAN8</label>
-  <label><input type="checkbox" value="UPC_A" checked>UPCA</label>
-  <label><input type="checkbox" value="UPC_E" checked>UPCE</label>
-  <label><input type="checkbox" value="ITF" checked>ITF</label>
-  <label><input type="checkbox" value="CODABAR" checked>Codabar</label>
-  <label><input type="checkbox" id="dedupe" checked>dedupe 2s</label>
-  <label><input type="checkbox" id="cont" checked>continuous</label>
-</fieldset>
+<main id="scan" hidden>
+  <div id="count"></div>
+  <div id="view">
+    <video id="v" playsinline muted></video>
+    <div id="reticle"></div>
+    <div id="flash"></div>
+    <div id="hint"></div>
+  </div>
+  <div class="row">
+    <button id="go" class="primary big">START SCANNING</button>
+    <button id="torch" hidden>Light</button>
+  </div>
+  <div id="result" aria-live="assertive"></div>
+  <div class="card">
+    <label class="field">ID won't scan? Find the name on the list<input id="find" type="search" autocomplete="off" placeholder="Type part of the last name"></label>
+    <ul id="found"></ul>
+  </div>
+</main>
 
-<div class="row">
-  <button id="copy">Copy last</button>
-  <button id="csv">Export CSV</button>
-  <button id="clr">Clear</button>
-</div>
-<ul id="hist"></ul>
+<section id="menu" hidden>
+  <h2>Menu</h2>
+  <button id="printBtn" class="primary wide">Print check-in report</button>
+  <button id="csvBtn" class="wide">Save report as spreadsheet (CSV)</button>
+  <button id="editBtn" class="wide">Edit or replace the list</button>
+  <label class="field">Camera<select id="cam"><option value="">Back camera</option></select></label>
+  <button id="wipeBtn" class="danger wide">Wipe list and check-ins from this device</button>
+  <p id="dataNote" class="dim"></p>
+  <p id="offline" class="dim">Open once with internet to make it work offline.</p>
+  <button id="closeMenu" class="wide">Back to scanning</button>
+</section>
 
-<script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+<section id="report"></section>
+
+<script src="vendor/zxing-library-0.21.3.min.js"></script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const v = $('v'), statusEl = $('status');
-  let reader = null, running = false, lastText = '', lastT = 0, flashT = 0;
-  const KEY = 'scan.history.v1';
-  let hist = [];
-  try { hist = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) {}
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const hhmm = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const stamp = iso => new Date(iso).toLocaleString([], { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(hist.slice(0, 2000))); } catch (e) {} };
-  const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-
-  function render() {
-    $('hist').innerHTML = hist.slice(0, 200).map(h =>
-      `<li><div>${esc(h.text)}</div><div class="meta"><span>${h.fmt}</span><span>${h.t.replace('T',' ').slice(0,19)}Z</span></div></li>`
-    ).join('');
-  }
-  function setLast(h) {
-    $('last').className = h.cls || '';
-    $('last').innerHTML = h.cls
-      ? `<span class="fmt">${h.fmt}</span><span class="big">${esc(h.text)}</span>${esc(h.note || '')}`
-      : `<span class="fmt">${h.fmt} · ${h.text.length} chars</span><br>${esc(h.text)}`;
-  }
-
-  const RKEY = 'scan.roster.v1';
-  let roster = { names: [], checked: {} };
-  try { Object.assign(roster, JSON.parse(localStorage.getItem(RKEY) || '{}')); } catch (e) {}
-  const saveRoster = () => { try { localStorage.setItem(RKEY, JSON.stringify(roster)); } catch (e) {} };
+  // Everything is kept in this browser's localStorage on this device: names, check-ins and flagged scans (names only).
+  const KEY = 'entry.v1';
+  const blank = () => ({ title: '', names: [], checked: {}, flagged: [] });
+  let db = blank();
+  try {
+    const old = JSON.parse(localStorage.getItem('scan.roster.v1') || 'null');  // roster saved by the previous build
+    Object.assign(db, JSON.parse(localStorage.getItem(KEY) || 'null') || old &&
+      { names: old.names || [], checked: Object.fromEntries(Object.entries(old.checked || {}).map(([n, t]) => [n, { t, how: 'scan' }])) });
+  } catch (e) {}
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); return true; } catch (e) { return false; } };
+  try {
+    // Earlier builds kept raw barcode text, which on an ID card includes the DoD ID number and date of birth.
+    localStorage.removeItem('scan.history.v1');
+    if (save()) localStorage.removeItem('scan.roster.v1');
+  } catch (e) {}
 
   // DoD ID card (CAC) front PDF417 is fixed-width: version char, ID header, first name (20), last name (26), ...
   // Per version: [first-name start, middle-initial index or -1, last-name start]. 'M' has a one-char-longer header and
   // the middle initial between the names (seen on a real card); '1'/'N' follow the published layout (MI not read).
   const ID_LAYOUT = { '1': [15, -1, 35], 'N': [15, -1, 35], 'M': [16, 36, 37] };
-  function parseID(text, fmt) {
+  function parseID(text) {
     const L = ID_LAYOUT[text[0]];
-    if (fmt !== 'PDF_417' || !L || text.length < L[2] + 26) return null;
+    if (!L || text.length < L[2] + 26) return null;
     const first = text.substr(L[0], 20).trim(), last = text.substr(L[2], 26).trim(), mi = L[1] < 0 ? '' : text[L[1]].trim();
     const name = /^[A-Za-z][A-Za-z .'-]*$/;
     if (!name.test(first) || !name.test(last) || !/^[A-Za-z]?$/.test(mi)) return null;
@@ -140,14 +166,14 @@ label.btn{background:var(--panel);border:1px solid var(--line);border-radius:8px
   }
 
   // Uppercase name words; words with digits (grades like O-3, IDs) are dropped, hyphenated names split.
-  const toks = s => s.normalize('NFD').replace(/[\u0300-\u036f'.]/g, '').toUpperCase().split(/[\s,;]+/)
+  const toks = s => s.normalize('NFD').replace(/[̀-ͯ'.]/g, '').toUpperCase().split(/[\s,;]+/)
     .filter(w => !/\d/.test(w)).join(' ').split(/[^A-Z]+/).filter(Boolean);
-  // Roster lines can be "First M Last", "Last, First M", or carry rank/extra columns: match on first + last name tokens.
+  // List lines can be "First M Last", "Last, First M", or carry rank/extra columns: match on first + last name words.
   // A single letter right after the first name is a middle initial and must agree with the card's when both exist.
-  function lookup(p) {
+  function lookup(p, names) {
     const first = toks(p.first)[0], last = toks(p.last), mi = toks(p.mi)[0];
     let hit = null, near = null;
-    for (const name of roster.names) {
+    for (const name of names) {
       const t = toks(name);
       if (!last.every(x => t.includes(x))) continue;
       const i = t.indexOf(first), next = t[i + 1] || '';
@@ -158,129 +184,229 @@ label.btn{background:var(--panel);border:1px solid var(--line);border-radius:8px
     return hit ? { name: hit, exact: true } : near && { name: near, exact: false };
   }
 
-  const hhmm = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  function checkIn(p) {
-    if (!roster.names.length) return { text: p.name, fmt: 'ID CARD' };
-    const m = lookup(p);
-    if (!m) return { text: p.name, fmt: 'NOT ON LIST', cls: 'no' };
-    if (!m.exact) return { text: p.name, fmt: 'CHECK NAME', cls: 'warn', note: 'closest on list: ' + m.name };
-    const prev = roster.checked[m.name];
-    if (prev) return { text: p.name, fmt: 'ALREADY CHECKED IN', cls: 'warn', note: 'at ' + hhmm(prev) + ' as ' + m.name };
-    roster.checked[m.name] = new Date().toISOString(); saveRoster(); renderRoster();
-    return { text: p.name, fmt: 'ON LIST', cls: 'ok', note: 'as ' + m.name };
+  // --- screens
+  function view(name) {
+    if (name !== 'scan') stop();
+    for (const id of ['setup', 'scan', 'menu']) $(id).hidden = id !== name;
+    $('menuBtn').hidden = name !== 'scan';
+    if (name === 'setup') { $('titleIn').value = db.title; $('namesIn').value = db.names.join('\n'); $('cancelSetup').hidden = !db.names.length; }
+    if (name === 'menu') $('dataNote').textContent = `On this device: ${db.names.length} names, ${checkedCount()} check-ins, ` +
+      `${db.flagged.length} flagged scans. Kept only in this browser on this phone; nothing is sent anywhere.`;
+    renderHeader();
   }
-  function renderRoster() {
-    const n = roster.names.length, c = roster.names.filter(x => roster.checked[x]).length;
-    $('rcount').textContent = n ? `${c} / ${n} checked in` : 'no list loaded';
+  const checkedCount = () => db.names.filter(n => db.checked[n]).length;
+  function renderHeader() {
+    $('listName').textContent = db.title || (db.names.length ? 'Entry list' : '');
+    $('count').textContent = `${checkedCount()} of ${db.names.length} checked in`;
   }
-  function setRoster(txt) {
-    roster.names = [...new Set(txt.split(/\r?\n/).map(s => s.replace(/"/g, '').trim()).filter(Boolean))];
-    saveRoster(); renderRoster();
+
+  // --- list setup
+  $('fileIn').onchange = async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    const lines = (await f.text()).replace(/^﻿/, '').split(/\r?\n/);
+    if (/\b(last|first|full)?\s*name\b|^\W*(last|first|rank|grade)\W*[,;\t]/i.test(lines[0])) lines.shift();  // header row
+    $('namesIn').value = lines.join('\n').trim();
+    if (!$('titleIn').value) $('titleIn').value = f.name.replace(/\.[^.]+$/, '');
+  };
+  $('saveList').onclick = () => {
+    const names = [...new Set($('namesIn').value.split(/\r?\n/).map(s => s.replace(/"/g, '').trim()).filter(Boolean))];
+    if (!names.length) return alert('Add at least one name first.');
+    db.title = $('titleIn').value.trim(); db.names = names;
+    if (!save()) alert('This browser will not keep the list (private browsing?). It will be lost when the page closes.');
+    view('scan'); ready();
+  };
+  $('cancelSetup').onclick = () => view('scan');
+
+  // --- camera + decoding
+  const v = $('v'), cv = document.createElement('canvas'), cx = cv.getContext('2d', { willReadFrequently: true });
+  const reader = new ZXing.MultiFormatReader();
+  reader.setHints(new Map([[ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.PDF_417]]]));
+  let stream = null, gen = 0, timer = 0, wake = null, audio = null, torchOn = false, camsListed = false, lastText = '', lastT = 0;
+
+  function setGo() {
+    $('go').textContent = stream ? 'STOP SCANNING' : 'START SCANNING';
+    $('go').className = stream ? 'big' : 'primary big';
+    $('hint').textContent = stream ? 'Hold the barcode on the FRONT of the ID inside the box' : 'Tap START SCANNING';
   }
-  function hints() {
-    const H = new Map();
-    const fm = [...document.querySelectorAll('fieldset input[type=checkbox][value]:checked')]
-      .map(c => ZXing.BarcodeFormat[c.value]);
-    H.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, fm);
-    // No TRY_HARDER: ZXing flips a global normal/inverted toggle on every grayscale pass, and TRY_HARDER's
-    // rotated 1D retry adds a second pass per frame, locking every camera frame to inverted (nothing decodes).
-    return H;
+  async function start() {
+    if (stream || $('go').disabled) return;
+    try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch (e) {}
+    const my = ++gen, id = $('cam').value;
+    $('go').disabled = true; $('go').textContent = 'STARTING…';
+    let s = null;
+    try {
+      s = await navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign(
+        id ? { deviceId: { exact: id } } : { facingMode: { ideal: 'environment' } }, { width: { ideal: 1920 }, height: { ideal: 1080 } }) });
+    } catch (e) {
+      show('warn', 'CAMERA BLOCKED', '', 'Allow camera access for this page in the phone settings, then try again');
+    }
+    $('go').disabled = false;
+    if (!s || my !== gen) { if (s) s.getTracks().forEach(t => t.stop()); return setGo(); }
+    stream = s; v.srcObject = s; v.play().catch(() => {});
+    const track = s.getVideoTracks()[0];
+    try { await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) {}
+    $('torch').hidden = !(track.getCapabilities && track.getCapabilities().torch);
+    try { wake = await navigator.wakeLock.request('screen'); } catch (e) {}  // keep the screen on while scanning
+    if (my !== gen) return stop();
+    setGo(); listCams(); tick();
+  }
+  function stop() {
+    gen++; clearTimeout(timer);
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null; v.srcObject = null; torchOn = false; $('torch').textContent = 'Light';
+    if (wake) { wake.release().catch(() => {}); wake = null; }
+    setGo();
+  }
+  // Frames are decoded as-is: ZXing's own video helper inverts every other frame, and ID barcodes are dark on light.
+  function tick() {
+    if (!stream) return;
+    let text = null;
+    if (v.readyState >= 2 && v.videoWidth) {
+      if (cv.width !== v.videoWidth || cv.height !== v.videoHeight) { cv.width = v.videoWidth; cv.height = v.videoHeight; }
+      cx.drawImage(v, 0, 0);
+      const bitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(cv)));
+      try { text = reader.decodeWithState(bitmap).getText(); } catch (e) {}
+    }
+    timer = setTimeout(tick, 100);
+    if (text) onScan(text);
+  }
+  async function listCams() {
+    if (camsListed) return;
+    camsListed = true;
+    const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    $('cam').innerHTML = '<option value="">Back camera</option>' +
+      cams.map((d, i) => `<option value="${esc(d.deviceId)}">${esc(d.label || 'Camera ' + (i + 1))}</option>`).join('');
+  }
+  $('go').onclick = () => stream ? stop() : start();
+  $('torch').onclick = async () => {
+    const tr = stream && stream.getVideoTracks()[0];
+    if (!tr) return;
+    torchOn = !torchOn;
+    try { await tr.applyConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) { torchOn = false; }
+    $('torch').textContent = torchOn ? 'Light off' : 'Light';
+  };
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); });
+
+  // --- verdicts
+  function onScan(text) {
+    const now = Date.now();
+    if (text === lastText && now - lastT < 2500) { lastT = now; return; }  // same card still in view
+    lastText = text; lastT = now;
+    const p = parseID(text);
+    if (!p) return show('warn', 'NOT A DoD ID', '', 'Check this ID by hand');
+    if (!db.names.length) return show('warn', 'NO LIST LOADED', p.name, 'Open Menu to load the entry list');
+    const m = lookup(p, db.names), t = new Date().toISOString();
+    const flag = why => { db.flagged.push({ t, name: p.name, why }); save(); };
+    if (!m) { flag('Not on list'); return show('no', 'NOT ON LIST', p.name, 'Refer to your supervisor'); }
+    if (!m.exact) { flag('Close to: ' + m.name); return show('warn', 'CHECK NAME', p.name, `Closest on list: ${m.name}. Check the ID by hand`); }
+    const prev = db.checked[m.name];
+    if (prev) {
+      flag('Already checked in at ' + hhmm(prev.t));
+      return show('warn', 'ALREADY CHECKED IN', p.name, `At ${hhmm(prev.t)}. Refer to your supervisor`);
+    }
+    checkIn(m.name, 'scan', t);
+    show('ok', 'ON LIST', p.name, m.name === p.name ? 'Checked in' : 'Checked in as: ' + m.name);
+  }
+  function checkIn(name, how, t = new Date().toISOString()) { db.checked[name] = { t, how }; save(); renderHeader(); }
+
+  let resetT = 0, flashT = 0;
+  function show(cls, head, name, note) {
+    $('result').className = cls;
+    $('result').innerHTML = `<b>${esc(head)}</b>` + (name ? `<span class="name">${esc(name)}</span>` : '') + (note ? `<span>${esc(note)}</span>` : '');
+    const f = $('flash');
+    f.className = 'on ' + cls;
+    clearTimeout(flashT); flashT = setTimeout(() => f.className = cls, cls === 'ok' ? 150 : 500);
+    beep(cls !== 'ok');
+    // Clear the verdict after a few seconds so an old green can't be read as the next person's.
+    clearTimeout(resetT); resetT = setTimeout(ready, cls === 'ok' ? 4000 : 8000);
+  }
+  function ready() {
+    clearTimeout(resetT);
+    $('result').className = '';
+    $('result').innerHTML = '<b>READY</b><span>' + (db.names.length ? 'Scan the next ID' : 'No list loaded: open Menu') + '</span>';
   }
   function beep(bad) {
     try {
-      const a = new (window.AudioContext || window.webkitAudioContext)();
-      const o = a.createOscillator(), g = a.createGain();
-      o.frequency.value = bad ? 330 : 1800; g.gain.value = .15;
-      o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + (bad ? .35 : .08));
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = bad ? 300 : 1760; g.gain.value = .2;
+      o.connect(g); g.connect(audio.destination); o.start(); o.stop(audio.currentTime + (bad ? .5 : .1));
     } catch (e) {}
-    if (navigator.vibrate) navigator.vibrate(bad ? [80, 60, 80] : 40);
-  }
-  function onResult(res) {
-    const text = res.getText(), now = Date.now();
-    if ($('dedupe').checked && text === lastText && now - lastT < 2000) { lastT = now; return; }
-    lastText = text; lastT = now;
-    const fmt = ZXing.BarcodeFormat[res.getBarcodeFormat()], id = parseID(text, fmt);
-    // ID cards keep only the name: the raw barcode also carries the DoD ID number, DOB and rank.
-    const h = Object.assign(id ? checkIn(id) : { text, fmt }, { t: new Date().toISOString() });
-    const bad = h.cls === 'no' || h.cls === 'warn';
-    hist.unshift(h); save(); render(); setLast(h); beep(bad);
-    const f = $('flash'); f.className = 'on ' + (h.cls || '');
-    clearTimeout(flashT); flashT = setTimeout(() => f.className = h.cls || '', bad ? 400 : 80);
-    if (!$('cont').checked) stop();
+    if (navigator.vibrate) navigator.vibrate(bad ? [120, 80, 120] : 50);
   }
 
-  async function listCams() {
-    try {
-      const tmp = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      tmp.getTracks().forEach(t => t.stop());
-    } catch (e) { statusEl.textContent = 'camera denied'; return; }
-    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
-    $('cam').innerHTML = '<option value="">auto (rear)</option>' +
-      devs.map(d => `<option value="${d.deviceId}">${esc(d.label || d.deviceId.slice(0, 8))}</option>`).join('');
+  // --- manual check-in for IDs that won't scan
+  function renderFind() {
+    const q = toks($('find').value);
+    if (!q.length) return void ($('found').innerHTML = '');
+    const hits = [];
+    db.names.forEach((n, i) => { const t = toks(n); if (q.every(w => t.some(x => x.startsWith(w)))) hits.push(i); });
+    $('found').innerHTML = hits.slice(0, 8).map(i => {
+      const n = db.names[i], c = db.checked[n];
+      return `<li><span>${esc(n)}</span>` + (c
+        ? `<em>in ${esc(hhmm(c.t))}</em><button data-i="${i}" data-act="undo">Undo</button>`
+        : `<button class="primary" data-i="${i}" data-act="in">Check in</button>`) + '</li>';
+    }).join('') || '<li class="dim">Not on the list</li>';
   }
-
-  async function start() {
-    if (running) return;
-    if (!window.ZXing) { statusEl.textContent = 'zxing failed to load'; return; }
-    reader = new ZXing.BrowserMultiFormatReader(hints(), 150);
-    const id = $('cam').value;
-    const constraints = { video: id
-      ? { deviceId: { exact: id }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-      : { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } };
-    try {
-      running = true; $('go').textContent = 'Stop'; statusEl.textContent = 'scanning';
-      await reader.decodeFromConstraints(constraints, v, (res, err) => { if (res) onResult(res); });
-      try { await v.srcObject.getVideoTracks()[0].applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) {}
-    } catch (e) {
-      running = false; $('go').textContent = 'Start'; statusEl.textContent = 'error: ' + (e.name || e);
+  $('find').oninput = renderFind;
+  $('found').onclick = e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const n = db.names[+b.dataset.i];
+    if (b.dataset.act === 'in') {
+      if (!confirm(`Check in ${n}?\n\nOnly after you have checked their ID by hand.`)) return;
+      checkIn(n, 'manual'); show('ok', 'CHECKED IN', n, 'Manual check-in'); $('find').value = '';
+    } else if (confirm(`Undo the check-in for ${n}?`)) {
+      delete db.checked[n]; save(); renderHeader();
     }
-  }
-  function stop() {
-    if (reader) { reader.reset(); reader = null; }
-    running = false; $('go').textContent = 'Start'; statusEl.textContent = 'idle';
-  }
-
-  $('go').onclick = () => running ? stop() : start();
-  $('cam').onchange = () => { if (running) { stop(); start(); } };
-  document.querySelectorAll('fieldset input[value]').forEach(c => c.onchange = () => { if (running) { stop(); start(); } });
-
-  let torchOn = false;
-  $('torch').onclick = async () => {
-    try {
-      const tr = v.srcObject && v.srcObject.getVideoTracks()[0];
-      if (!tr || !(tr.getCapabilities().torch)) { statusEl.textContent = 'torch unsupported here'; return; }
-      torchOn = !torchOn;
-      await tr.applyConstraints({ advanced: [{ torch: torchOn }] });
-    } catch (e) { statusEl.textContent = 'torch unsupported here'; }
+    renderFind();
   };
 
-  $('copy').onclick = async () => {
-    if (!hist.length) return;
-    try { await navigator.clipboard.writeText(hist[0].text); statusEl.textContent = 'copied'; } catch (e) { statusEl.textContent = 'copy blocked'; }
-  };
-  $('clr').onclick = () => { if (confirm('Clear history?')) { hist = []; save(); render(); $('last').className = ''; $('last').innerHTML = '<span class="fmt">no scan</span>'; } };
-  const q = s => '"' + s.replace(/"/g, '""') + '"';
-  function download(name, csv) {
+  // --- menu: report, CSV, edit, wipe
+  function buildReport() {
+    const ins = db.names.filter(n => db.checked[n]).sort((a, b) => db.checked[a].t < db.checked[b].t ? -1 : 1);
+    const outs = db.names.filter(n => !db.checked[n]);
+    const table = (head, rows) => `<table><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>` +
+      (rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${head.length}">None</td></tr>`) +
+      '</tbody></table>';
+    $('report').innerHTML = `<h1>Entry check-in report</h1>
+      <p><b>${esc(db.title || 'Entry list')}</b><br>Printed ${esc(stamp(new Date().toISOString()))} · ${ins.length} of ${db.names.length} checked in</p>
+      <h2>Checked in (${ins.length})</h2>` +
+      table(['#', 'Time', 'Name on list', 'How'], ins.map((n, i) => [i + 1, stamp(db.checked[n].t), n, db.checked[n].how === 'manual' ? 'Manual' : 'ID scan'])) +
+      `<h2>Not checked in (${outs.length})</h2>` + table(['Name on list'], outs.map(n => [n])) +
+      `<h2>Flagged scans (${db.flagged.length})</h2>` + table(['Time', 'Name on ID', 'Result'], db.flagged.map(f => [stamp(f.t), f.name, f.why])) +
+      `<p class="sig">Prepared by: ____________________________ &nbsp; Signature: ______________________</p>
+      <p class="small">Generated on this device by Entry Check. The data never left the device.</p>`;
+  }
+  $('printBtn').onclick = () => { buildReport(); window.print(); };
+  $('csvBtn').onclick = () => {
+    const q = s => { s = String(s); if (/^[=+\-@]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
+    const rows = [['status', 'time', 'name', 'detail']]
+      .concat(db.names.filter(n => db.checked[n]).map(n => ['Checked in', stamp(db.checked[n].t), n, db.checked[n].how === 'manual' ? 'Manual' : 'ID scan']))
+      .concat(db.names.filter(n => !db.checked[n]).map(n => ['Not checked in', '', n, '']))
+      .concat(db.flagged.map(f => ['Flagged', stamp(f.t), f.name, f.why]));
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download = name + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+    a.href = URL.createObjectURL(new Blob([rows.map(r => r.map(q).join(',')).join('\r\n')], { type: 'text/csv' }));
+    a.download = 'entry-report-' + new Date().toISOString().slice(0, 10) + '.csv';
     a.click();
-  }
-  $('csv').onclick = () => download('scans', 'time_utc,format,text\n' + hist.map(h => [h.t, h.fmt, q(h.text)].join(',')).join('\n'));
-
-  $('roster').value = roster.names.join('\n');
-  $('roster').oninput = () => setRoster($('roster').value);
-  $('rfile').onchange = async e => {
-    const file = e.target.files[0]; if (!file) return;
-    $('roster').value = await file.text(); setRoster($('roster').value); e.target.value = '';
   };
-  $('rcsv').onclick = () => download('roster', 'name,checked_in_utc\n' + roster.names.map(x => q(x) + ',' + (roster.checked[x] || '')).join('\n'));
-  $('rreset').onclick = () => { if (confirm('Clear all check-ins?')) { roster.checked = {}; saveRoster(); renderRoster(); } };
-  renderRoster();
+  $('editBtn').onclick = () => view('setup');
+  $('wipeBtn').onclick = () => {
+    if (!confirm('Wipe the list and all check-ins from this device?\n\nPrint or save the report first if you need it. This cannot be undone.')) return;
+    db = blank(); lastText = '';
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    $('find').value = ''; renderFind(); $('report').innerHTML = '';
+    view('setup'); ready();
+  };
+  $('menuBtn').onclick = () => view('menu');
+  $('closeMenu').onclick = () => view('scan');
 
-  document.addEventListener('visibilitychange', () => { if (document.hidden && running) stop(); });
-  render(); if (hist[0]) setLast(hist[0]);
-  if (navigator.mediaDevices) listCams();
+  // Offline: a service worker keeps the app's own files on the device (never any names or check-ins).
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready)
+    .then(() => { $('offline').textContent = 'Works offline on this device.'; }).catch(() => {});
+
+  view(db.names.length ? 'scan' : 'setup'); ready(); setGo();
 })();
 </script>
 </body>
